@@ -1,35 +1,30 @@
-import akka.actor.ActorSystem
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.{Uri, HttpResponse, HttpRequest}
+import akka.http.scaladsl.model.{HttpRequest, HttpResponse, Uri}
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server._
-import akka.stream.ActorFlowMaterializer
 import akka.stream.scaladsl._
-import com.typesafe.config.{ConfigFactory, Config}
 
-import scala.concurrent.ExecutionContext
 
-trait Core  {
-  implicit val system: ActorSystem = ActorSystem("http-balancer")
-  implicit val materializer: ActorFlowMaterializer = ActorFlowMaterializer()
-  implicit val ec: ExecutionContext = system.dispatcher
-}
+class BootedServer(val _port:Int) extends LocalHttpServer with Core
 
 object BalancerApp extends App{
+  val localServerPorts = Seq(10002, 10003)
+  val servers = localServerPorts.map(new BootedServer(_))
+
+  val localServerUris = localServerPorts.map(port => Uri(s"http://localhost:${port}/dictionaries/hello/suggestions?ngr=hond"))
+  
   val balancer = new Balancer with Core{
-    override def config: Config = ConfigFactory.load()
+    override def serverUris = localServerUris
   }
 
   balancer.start()
+  servers.foreach(_.start())
 }
 
 trait Balancer {
   this:Core =>
 
-  def config: Config
-  
-  def serverUris = Seq(Uri("http://localhost:4051/dictionaries/hello/suggestions?ngr=hond"),
-                       Uri("http://localhost:4052/dictionaries/hello/suggestions?ngr=hond"))
+  def serverUris:Seq[Uri] 
             
   def route(flow:Flow[HttpRequest, HttpResponse, Unit]): Route = {
     path("dictionaries" / Segment / "suggestions"){ dictionaryId =>
@@ -56,7 +51,7 @@ trait Balancer {
       val connectionFlow = Http().superPool[Int]().map(x => x._1.get)
 
       //TODO
-      //There would be problems with request ordering here. Here should be additional mapping between request and response.
+      //There would be problems with request ordering. Here should be additional mapping between request and response.
       serverUris.map { _uri =>
         val requestFlow = Flow[HttpRequest].map(_ => (HttpRequest(uri = _uri), 0))
         
