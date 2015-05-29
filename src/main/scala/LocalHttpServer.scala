@@ -6,7 +6,7 @@ import akka.stream.scaladsl.Sink
 trait LocalHttpServer {
   this: Core =>
 
-  val _port:Int
+  val port:Int
 
   def start() = {
     val route: Route = {
@@ -21,7 +21,7 @@ trait LocalHttpServer {
 
     Http().bind(
       interface = "127.0.0.1",
-      port = _port
+      port = port
     ).to(Sink.foreach { conn =>
       conn.flow.join(route).run()
     }).run()
